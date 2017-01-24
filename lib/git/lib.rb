@@ -849,6 +849,42 @@ module Git
       (self.current_command_version <=>  self.required_command_version) >= 0
     end
 
+    def command(cmd, opts = [], chdir = true, redirect = '', &block)
+      global_opts = []
+      global_opts << "--git-dir=#{@git_dir}" if !@git_dir.nil?
+      global_opts << "--work-tree=#{@git_work_dir}" if !@git_work_dir.nil?
+
+      opts = [opts].flatten.map {|s| escape(s) }.join(' ')
+
+      global_opts = global_opts.flatten.map {|s| escape(s) }.join(' ')
+
+      git_cmd = "#{Git::Base.config.binary_path} #{global_opts} #{cmd} #{opts} #{redirect} 2>&1"
+
+      output = nil
+
+      command_thread = nil;
+
+      exitstatus = nil
+
+      with_custom_env_variables do
+        command_thread = Thread.new do
+          output = run_command(git_cmd, &block)
+          exitstatus = $?.exitstatus
+        end
+        command_thread.join
+      end
+
+      if @logger
+        @logger.info(git_cmd)
+        @logger.debug(output)
+      end
+
+      if exitstatus > 1 || (exitstatus == 1 && output != '')
+        raise Git::GitExecuteError.new(git_cmd + ':' + output.to_s)
+      end
+
+      return output
+    end
 
     private
 
@@ -901,43 +937,6 @@ module Git
       end
     ensure
       restore_git_system_env_variables()
-    end
-
-    def command(cmd, opts = [], chdir = true, redirect = '', &block)
-      global_opts = []
-      global_opts << "--git-dir=#{@git_dir}" if !@git_dir.nil?
-      global_opts << "--work-tree=#{@git_work_dir}" if !@git_work_dir.nil?
-
-      opts = [opts].flatten.map {|s| escape(s) }.join(' ')
-
-      global_opts = global_opts.flatten.map {|s| escape(s) }.join(' ')
-
-      git_cmd = "#{Git::Base.config.binary_path} #{global_opts} #{cmd} #{opts} #{redirect} 2>&1"
-
-      output = nil
-
-      command_thread = nil;
-
-      exitstatus = nil
-
-      with_custom_env_variables do
-        command_thread = Thread.new do
-          output = run_command(git_cmd, &block)
-          exitstatus = $?.exitstatus
-        end
-        command_thread.join
-      end
-
-      if @logger
-        @logger.info(git_cmd)
-        @logger.debug(output)
-      end
-
-      if exitstatus > 1 || (exitstatus == 1 && output != '')
-        raise Git::GitExecuteError.new(git_cmd + ':' + output.to_s)
-      end
-
-      return output
     end
 
     # Takes the diff command line output (as Array) and parse it into a Hash
